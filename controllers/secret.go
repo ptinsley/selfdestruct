@@ -14,7 +14,10 @@ type SecretController struct{}
 
 // New - display the secret creation page
 func (s SecretController) New(ctx *gin.Context) {
-	ctx.HTML(http.StatusOK, "secret/index", gin.H{})
+	ctx.HTML(http.StatusOK, "secret/index", gin.H{
+		"heroTitle":    "Create Secret",
+		"heroSubtitle": "Create a one time secret",
+	})
 }
 
 // Create - store the submitted secret
@@ -26,9 +29,12 @@ func (s SecretController) Create(ctx *gin.Context) {
 	secret.Create(uuid, secretValue)
 
 	ctx.HTML(http.StatusOK, "secret/create", gin.H{
-		"scheme": url.Scheme,
-		"host":   url.Host,
-		"uuid":   uuid,
+		"flashSuccess": "Secret Created!",
+		"heroTitle":    "Share Secret",
+		"heroSubtitle": "Now that you've created your secret, it's time to send it to someone.",
+		"scheme":       url.Scheme,
+		"host":         url.Host,
+		"uuid":         uuid,
 	})
 }
 
@@ -38,6 +44,8 @@ func (s SecretController) Retrieve(ctx *gin.Context) {
 	secret, _ := secret.Take(id)
 
 	ctx.HTML(http.StatusOK, "secret/retrieve", gin.H{
-		"secret": secret,
+		"heroTitle":    "Your Secret",
+		"heroSubtitle": "This message will self destruct when you leave the page.",
+		"secret":       secret,
 	})
 }

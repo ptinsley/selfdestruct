@@ -40,7 +40,8 @@ func Create(key string, value string) error {
 
 // Take - Retrieve and delete encryption key and encrypted secret
 func Take(key string) (string, error) {
-	encryptionString := kv.Take(key)
+	//FIXME:
+	encryptionString := kv.Get(key)
 	if encryptionString == "" {
 		fmt.Println(fmt.Sprintf("[secret.Take] couldn't retrieve encryption key for %s", key))
 		return "", errors.New("kv retrieval failed")
@@ -49,7 +50,8 @@ func Take(key string) (string, error) {
 	var encryptionKey [32]byte
 	copy(encryptionKey[:], decode(encryptionString))
 
-	cypherText := storage.Take(key)
+	//FIXME:
+	cypherText := storage.Get(key)
 	if len(cypherText) == 0 {
 		fmt.Println(fmt.Sprintf("[secret.Take] couldn't retrieve cyphertext for %s", key))
 		return "", errors.New("storage retrieval failed")
