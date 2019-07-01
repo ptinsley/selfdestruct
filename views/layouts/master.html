@@ -1,48 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+
+<head>
     <title>Self Destruct - One Time Secrets</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.5/css/bulma.css">
-    </head>
-    <body>
-        <nav id="navbar" class="navbar has-shadow is-spaced">
-            <div class="container">
-                <div class="navbar-brand">
-                    <a class="navbar-item" href="/">
-                    I'm a Logo!
-                    </a>
-                </div>
-                <div class="navbar-menu">
-                    <div class="navbar-start">
-                        <a class="navbar-item" href="/secret/">Create Secret</a>
-                        <a class="navbar-item" href="/about">About</a>
-                    </div>
-                </div>
+</head>
+
+<body>
+    <nav id="navbar" class="navbar has-shadow is-spaced">
+        <div class="container">
+            <div class="navbar-brand">
+                <a class="navbar-item" href="/">
+                    <img src="/assets/logo.png">
+                </a>
             </div>
-        </nav>
-        {{ if .flashSuccess }}
-        <div class="notification is-success">{{.flashSuccess}}</div>
-        {{end}}
-        {{ if .heroTitle }}
-        <section class="hero">
-            <div class="hero-body">
-                <div class="container">
-                    <h1 class="title">
-                        {{.heroTitle}}
-                    </h1>
-                    {{ if .heroSubtitle }}
-                    <h2 class="subtitle">
-                        {{.heroSubtitle}}
-                    </h2>
-                    {{end}}
+            <div class="navbar-menu">
+                <div class="navbar-start">
+                    <a class="navbar-item" href="/secret/">Create Secret</a>
+                    <a class="navbar-item" href="/about">About</a>
                 </div>
-            </div>
-        </section>
-        {{end}}
-        <div class="main-content">
-            <div class="container">
-{{template "content" .}}
             </div>
         </div>
-    </body>
+    </nav>
+    {{ if .flashSuccess }}
+    <div class="notification is-success">{{.flashSuccess}}</div>
+    {{end}}
+    {{ if .heroTitle }}
+    <section class="hero">
+        <div class="hero-body">
+            <div class="container">
+                <h1 class="title">
+                    {{.heroTitle}}
+                </h1>
+                {{ if .heroSubtitle }}
+                <h2 class="subtitle">
+                    {{.heroSubtitle}}
+                </h2>
+                {{end}}
+            </div>
+        </div>
+    </section>
+    {{end}}
+    <div class="main-content">
+        <div class="container">
+            {{template "content" .}}
+        </div>
+    </div>
+</body>
+
 </html>
