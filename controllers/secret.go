@@ -33,7 +33,7 @@ func (s SecretController) Create(ctx *gin.Context) {
 		"heroTitle":    "Share Secret",
 		"heroSubtitle": "Now that you've created your secret, it's time to send it to someone.",
 		"scheme":       url.Scheme,
-		"host":         url.Host,
+		"host":         ctx.Request.Host,
 		"uuid":         uuid,
 	})
 }
@@ -43,9 +43,12 @@ func (s SecretController) Retrieve(ctx *gin.Context) {
 	id := ctx.Param("id")
 	secret, _ := secret.Take(id)
 
+	// FIXME: add error page/flash if the secret is gone
+
 	ctx.HTML(http.StatusOK, "secret/retrieve", gin.H{
 		"heroTitle":    "Your Secret",
 		"heroSubtitle": "This message will self destruct when you leave the page.",
+		"hideNav":      1,
 		"secret":       secret,
 	})
 }
