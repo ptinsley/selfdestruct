@@ -1,11 +1,9 @@
 package controllers
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ptinsley/selfdestruct/utils"
 )
 
 // RootController - Placeholder struct for this controller
@@ -13,7 +11,6 @@ type RootController struct{}
 
 // Index - Serve the / page of the site
 func (r RootController) Index(ctx *gin.Context) {
-	fmt.Println(utils.FormatRequest(ctx.Request))
 	ctx.HTML(http.StatusOK, "index", gin.H{
 		"heroTitle":    "Self Destruct",
 		"heroSubtitle": "Send messages and secrets that self destruct after being viewed.",

@@ -26,16 +26,22 @@ func (s SecretController) Create(ctx *gin.Context) {
 	url := location.Get(ctx)
 
 	uuid := utils.UUID()
-	secret.Create(uuid, secretValue)
 
-	ctx.HTML(http.StatusOK, "secret/create", gin.H{
-		"flashSuccess": "Secret Created!",
-		"heroTitle":    "Share Secret",
-		"heroSubtitle": "Now that you've created your secret, it's time to send it to someone.",
-		"scheme":       url.Scheme,
-		"host":         ctx.Request.Host,
-		"uuid":         uuid,
-	})
+	if err := secret.Create(uuid, secretValue); err != nil {
+		ctx.HTML(http.StatusInternalServerError, "secret/create", gin.H{
+			"flashFailure": "Cannot currently store your secret, please try again later.",
+		})
+	} else {
+		ctx.HTML(http.StatusOK, "secret/create", gin.H{
+			"flashSuccess": "Secret Created!",
+			"heroTitle":    "Share Secret",
+			"heroSubtitle": "Now that you've created your secret, it's time to send it to someone.",
+			"scheme":       url.Scheme,
+			"host":         ctx.Request.Host,
+			"uuid":         uuid,
+		})
+	}
+
 }
 
 // Retrieve - get the secret, delete the encryption key and serve the secret to the user

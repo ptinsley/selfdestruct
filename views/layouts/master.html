@@ -28,6 +28,9 @@
     {{ if .flashSuccess }}
     <div class="notification is-success">{{.flashSuccess}}</div>
     {{end}}
+    {{ if .flashFailure }}
+    <div class="notification is-danger">{{.flashFailure}}</div>
+    {{ end }}
     {{ if .heroTitle }}
     <section class="hero">
         <div class="hero-body">
