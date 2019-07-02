@@ -39,5 +39,11 @@ func NewRouter() *gin.Engine {
 		secretGroup.GET("retrieve/:id", secretController.Retrieve)
 	}
 
+	apiController := new(controllers.APIController)
+	apiGroup := router.Group("api/v1")
+	{
+		apiGroup.POST("/create", apiController.Create)
+	}
+
 	return router
 }

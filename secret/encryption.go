@@ -66,3 +66,28 @@ func Decrypt(ciphertext []byte, key *[32]byte) (plaintext []byte, err error) {
 		nil,
 	)
 }
+
+// encrypt the random encryption key with the master key
+func encryptKey(encryptionKey *[32]byte) (string, error) {
+	cypherText, err := Encrypt(encryptionKey[:], &masterKey)
+	if err != nil {
+		return "", err
+	}
+
+	return encode(cypherText), nil
+}
+
+// decrypt the random encryptoin key with the master key
+func decryptKey(cypherString string) (*[32]byte, error) {
+	cypherText := decode(cypherString)
+
+	plaintext, err := Decrypt(cypherText, &masterKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var encryptionKey [32]byte
+	copy(encryptionKey[:], plaintext)
+
+	return &encryptionKey, nil
+}

@@ -3,7 +3,6 @@ package controllers
 import (
 	"net/http"
 
-	"github.com/gin-contrib/location"
 	"github.com/gin-gonic/gin"
 	"github.com/ptinsley/selfdestruct/secret"
 	"github.com/ptinsley/selfdestruct/utils"
@@ -23,11 +22,8 @@ func (s SecretController) New(ctx *gin.Context) {
 // Create - store the submitted secret
 func (s SecretController) Create(ctx *gin.Context) {
 	secretValue := ctx.PostForm("secret")
-	url := location.Get(ctx)
 
-	uuid := utils.UUID()
-
-	if err := secret.Create(uuid, secretValue); err != nil {
+	if secretID, err := secret.Create(secretValue); err != nil {
 		ctx.HTML(http.StatusInternalServerError, "secret/create", gin.H{
 			"flashFailure": "Cannot currently store your secret, please try again later.",
 		})
@@ -36,12 +32,9 @@ func (s SecretController) Create(ctx *gin.Context) {
 			"flashSuccess": "Secret Created!",
 			"heroTitle":    "Share Secret",
 			"heroSubtitle": "Now that you've created your secret, it's time to send it to someone.",
-			"scheme":       url.Scheme,
-			"host":         ctx.Request.Host,
-			"uuid":         uuid,
+			"retrieveURL":  utils.RetrieveURL(ctx, secretID),
 		})
 	}
-
 }
 
 // Retrieve - get the secret, delete the encryption key and serve the secret to the user

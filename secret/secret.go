@@ -5,37 +5,64 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/ptinsley/selfdestruct/kv"
 	"github.com/ptinsley/selfdestruct/storage"
+	"github.com/ptinsley/selfdestruct/utils"
 )
 
+var masterKey [32]byte
+
+// Init - store master key
+func Init() {
+	masterKeyString := utils.Env("MASTERKEY")
+	blah := NewEncryptionKey()
+	fmt.Println(encode(blah[:]))
+
+	if masterKeyString == "" {
+		fmt.Println(fmt.Sprintf("Master key not provided, cannot continue"))
+		os.Exit(-1)
+	}
+
+	copy(masterKey[:], decode(masterKeyString))
+}
+
 // Create - Create a lookup in kv and store the resulting encrypted data
-func Create(key string, value string) error {
+func Create(value string) (secretID string, err error) {
+	secretID = utils.UUID()
+
 	encryptionKey := NewEncryptionKey()
 
 	//Encrypt the data
 	cypherText, err := Encrypt([]byte(value), encryptionKey)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("[secret.Create] Unable to encrypt (%s)", err))
-		return err
+		return "", err
 	}
 
 	//store the encryption key in the kv store uuid -> encryptionkey
-	err = kv.Set(key, encode(encryptionKey[:]))
+	//err = kv.Set(key, encode(encryptionKey[:]))
+	encryptedKey, err := encryptKey(encryptionKey)
+	if err != nil {
+		fmt.Println(fmt.Sprintf("[secret.Create] Failed to encrypt data encryption key (%s)", err))
+		return "", err
+	}
+
+	err = kv.Set(secretID, encryptedKey)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("secret.Create] Unable to store key in kv (%s)", err))
-		return err
+		return "", err
 	}
 
 	//store the encrypted data in cloud storage uuid -> cyphertext
-	err = storage.Set(key, cypherText)
+	err = storage.Set(secretID, cypherText)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("secret.Create] Unable to store encrypted data in cloud storage (%s)", err))
-		return err
+		return "", err
 	}
 
-	return nil
+	return secretID, nil
 }
 
 // Take - Retrieve and delete encryption key and encrypted secret
@@ -46,8 +73,14 @@ func Take(key string) (string, error) {
 		return "", errors.New("kv retrieval failed")
 	}
 
-	var encryptionKey [32]byte
-	copy(encryptionKey[:], decode(encryptionString))
+	encryptionKey, err := decryptKey(encryptionString)
+	if err != nil {
+		fmt.Println(fmt.Sprintf("[secret.Take] unable to decrypt object encryption key (%s)", err))
+		return "", err
+	}
+
+	// var encryptionKey [32]byte
+	// copy(encryptionKey[:], decode(encryptionString))
 
 	cypherText := storage.Take(key)
 	if len(cypherText) == 0 {
@@ -55,7 +88,7 @@ func Take(key string) (string, error) {
 		return "", errors.New("storage retrieval failed")
 	}
 
-	plaintext, err := Decrypt(cypherText, &encryptionKey)
+	plaintext, err := Decrypt(cypherText, encryptionKey)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("[secret.Take] couldn't decrypt cyphertext for %s (%s)", key, err))
 		return "", err
