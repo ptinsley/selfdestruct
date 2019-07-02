@@ -47,14 +47,16 @@ func (s SecretController) Create(ctx *gin.Context) {
 // Retrieve - get the secret, delete the encryption key and serve the secret to the user
 func (s SecretController) Retrieve(ctx *gin.Context) {
 	id := ctx.Param("id")
-	secret, _ := secret.Take(id)
-
-	// FIXME: add error page/flash if the secret is gone
-
-	ctx.HTML(http.StatusOK, "secret/retrieve", gin.H{
-		"heroTitle":    "Your Secret",
-		"heroSubtitle": "This message will self destruct when you leave the page.",
-		"hideNav":      1,
-		"secret":       secret,
-	})
+	if secret, err := secret.Take(id); err != nil {
+		ctx.HTML(http.StatusNotFound, "secret/retrieve", gin.H{
+			"flashWarning": "Cannot retrieve your secret, secrets can only be retrieved once. If you feel you are receiving this message in error please contact the person who sent you a secret.",
+		})
+	} else {
+		ctx.HTML(http.StatusOK, "secret/retrieve", gin.H{
+			"heroTitle":    "Your Secret",
+			"heroSubtitle": "This message will self destruct when you leave the page.",
+			"hideNav":      1,
+			"secret":       secret,
+		})
+	}
 }
