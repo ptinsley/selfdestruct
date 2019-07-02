@@ -50,6 +50,7 @@ func (s SecretController) Retrieve(ctx *gin.Context) {
 	if secret, err := secret.Take(id); err != nil {
 		ctx.HTML(http.StatusNotFound, "secret/retrieve", gin.H{
 			"flashWarning": "Cannot retrieve your secret, secrets can only be retrieved once. If you feel you are receiving this message in error please contact the person who sent you a secret.",
+			"hideNav":      1,
 		})
 	} else {
 		ctx.HTML(http.StatusOK, "secret/retrieve", gin.H{
