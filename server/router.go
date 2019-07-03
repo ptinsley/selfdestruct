@@ -23,6 +23,9 @@ func NewRouter() *gin.Engine {
 	// serve static files from the assets dir
 	router.Static("/assets", "./assets")
 
+	// special case for favicon
+	router.StaticFile("/favicon.ico", "./assets/images/favicon.ico")
+
 	rootController := new(controllers.RootController)
 	router.GET("/", rootController.Index)
 	router.GET("/about", rootController.About)
