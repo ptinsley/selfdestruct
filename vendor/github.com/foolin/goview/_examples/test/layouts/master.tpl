@@ -1,1 +1,0 @@
-<v>{{template "content" .}}</v>

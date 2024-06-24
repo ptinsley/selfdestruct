@@ -1,1 +1,0 @@
-{{define "content"}}{{include "widgets/inc"}}{{end}}

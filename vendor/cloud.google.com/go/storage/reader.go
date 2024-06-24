@@ -16,20 +16,15 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
-	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/internal/trace"
-	"google.golang.org/api/googleapi"
 )
 
 var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
@@ -42,6 +37,11 @@ var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 type ReaderObjectAttrs struct {
 	// Size is the length of the object's content.
 	Size int64
+
+	// StartOffset is the byte offset within the object
+	// from which reading begins.
+	// This value is only non-zero for range requests.
+	StartOffset int64
 
 	// ContentType is the MIME type of the object's content.
 	ContentType string
@@ -72,182 +72,85 @@ type ReaderObjectAttrs struct {
 // ErrObjectNotExist will be returned if the object is not found.
 //
 // The caller must call Close on the returned Reader when done reading.
+//
+// By default, reads are made using the Cloud Storage XML API. We recommend
+// using the JSON API instead, which can be done by setting [WithJSONReads]
+// when calling [NewClient]. This ensures consistency with other client
+// operations, which all use JSON. JSON will become the default in a future
+// release.
 func (o *ObjectHandle) NewReader(ctx context.Context) (*Reader, error) {
 	return o.NewRangeReader(ctx, 0, -1)
 }
 
 // NewRangeReader reads part of an object, reading at most length bytes
 // starting at the given offset. If length is negative, the object is read
-// until the end.
+// until the end. If offset is negative, the object is read abs(offset) bytes
+// from the end, and length must also be negative to indicate all remaining
+// bytes will be read.
+//
+// If the object's metadata property "Content-Encoding" is set to "gzip" or satisfies
+// decompressive transcoding per https://cloud.google.com/storage/docs/transcoding
+// that file will be served back whole, regardless of the requested range as
+// Google Cloud Storage dictates.
+//
+// By default, reads are made using the Cloud Storage XML API. We recommend
+// using the JSON API instead, which can be done by setting [WithJSONReads]
+// when calling [NewClient]. This ensures consistency with other client
+// operations, which all use JSON. JSON will become the default in a future
+// release.
 func (o *ObjectHandle) NewRangeReader(ctx context.Context, offset, length int64) (r *Reader, err error) {
-	ctx = trace.StartSpan(ctx, "cloud.google.com/go/storage.Object.NewRangeReader")
-	defer func() { trace.EndSpan(ctx, err) }()
+	// This span covers the life of the reader. It is closed via the context
+	// in Reader.Close.
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/storage.Object.Reader")
 
 	if err := o.validate(); err != nil {
 		return nil, err
 	}
-	if offset < 0 {
-		return nil, fmt.Errorf("storage: invalid offset %d < 0", offset)
+	if offset < 0 && length >= 0 {
+		return nil, fmt.Errorf("storage: invalid offset %d < 0 requires negative length", offset)
 	}
 	if o.conds != nil {
 		if err := o.conds.validate("NewRangeReader"); err != nil {
 			return nil, err
 		}
 	}
-	u := &url.URL{
-		Scheme: "https",
-		Host:   "storage.googleapis.com",
-		Path:   fmt.Sprintf("/%s/%s", o.bucket, o.object),
-	}
-	verb := "GET"
-	if length == 0 {
-		verb = "HEAD"
-	}
-	req, err := http.NewRequest(verb, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if o.userProject != "" {
-		req.Header.Set("X-Goog-User-Project", o.userProject)
-	}
-	if o.readCompressed {
-		req.Header.Set("Accept-Encoding", "gzip")
-	}
-	if err := setEncryptionHeaders(req.Header, o.encryptionKey, false); err != nil {
-		return nil, err
+
+	opts := makeStorageOpts(true, o.retry, o.userProject)
+
+	params := &newRangeReaderParams{
+		bucket:         o.bucket,
+		object:         o.object,
+		gen:            o.gen,
+		offset:         offset,
+		length:         length,
+		encryptionKey:  o.encryptionKey,
+		conds:          o.conds,
+		readCompressed: o.readCompressed,
 	}
 
-	gen := o.gen
+	r, err = o.c.tc.NewRangeReader(ctx, params, opts...)
 
-	// Define a function that initiates a Read with offset and length, assuming we
-	// have already read seen bytes.
-	reopen := func(seen int64) (*http.Response, error) {
-		start := offset + seen
-		if length < 0 && start > 0 {
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", start))
-		} else if length > 0 {
-			// The end character isn't affected by how many bytes we've seen.
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, offset+length-1))
-		}
-		// We wait to assign conditions here because the generation number can change in between reopen() runs.
-		req.URL.RawQuery = conditionsQuery(gen, o.conds)
-		var res *http.Response
-		err = runWithRetry(ctx, func() error {
-			res, err = o.c.hc.Do(req)
-			if err != nil {
-				return err
-			}
-			if res.StatusCode == http.StatusNotFound {
-				res.Body.Close()
-				return ErrObjectNotExist
-			}
-			if res.StatusCode < 200 || res.StatusCode > 299 {
-				body, _ := ioutil.ReadAll(res.Body)
-				res.Body.Close()
-				return &googleapi.Error{
-					Code:   res.StatusCode,
-					Header: res.Header,
-					Body:   string(body),
-				}
-			}
-			if start > 0 && length != 0 && res.StatusCode != http.StatusPartialContent {
-				res.Body.Close()
-				return errors.New("storage: partial request not satisfied")
-			}
-			// If a generation hasn't been specified, and this is the first response we get, let's record the
-			// generation. In future requests we'll use this generation as a precondition to avoid data races.
-			if gen < 0 && res.Header.Get("X-Goog-Generation") != "" {
-				gen64, err := strconv.ParseInt(res.Header.Get("X-Goog-Generation"), 10, 64)
-				if err != nil {
-					return err
-				}
-				gen = gen64
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		return res, nil
-	}
-
-	res, err := reopen(0)
-	if err != nil {
-		return nil, err
-	}
-	var (
-		size     int64 // total size of object, even if a range was requested.
-		checkCRC bool
-		crc      uint32
-	)
-	if res.StatusCode == http.StatusPartialContent {
-		cr := strings.TrimSpace(res.Header.Get("Content-Range"))
-		if !strings.HasPrefix(cr, "bytes ") || !strings.Contains(cr, "/") {
-
-			return nil, fmt.Errorf("storage: invalid Content-Range %q", cr)
-		}
-		size, err = strconv.ParseInt(cr[strings.LastIndex(cr, "/")+1:], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("storage: invalid Content-Range %q", cr)
-		}
+	// Pass the context so that the span can be closed in Reader.Close, or close the
+	// span now if there is an error.
+	if err == nil {
+		r.ctx = ctx
 	} else {
-		size = res.ContentLength
-		// Check the CRC iff all of the following hold:
-		// - We asked for content (length != 0).
-		// - We got all the content (status != PartialContent).
-		// - The server sent a CRC header.
-		// - The Go http stack did not uncompress the file.
-		// - We were not served compressed data that was uncompressed on download.
-		// The problem with the last two cases is that the CRC will not match -- GCS
-		// computes it on the compressed contents, but we compute it on the
-		// uncompressed contents.
-		if length != 0 && !res.Uncompressed && !uncompressedByServer(res) {
-			crc, checkCRC = parseCRC32c(res)
-		}
+		trace.EndSpan(ctx, err)
 	}
 
-	remain := res.ContentLength
-	body := res.Body
-	if length == 0 {
-		remain = 0
-		body.Close()
-		body = emptyBody
-	}
-	var metaGen int64
-	if res.Header.Get("X-Goog-Generation") != "" {
-		metaGen, err = strconv.ParseInt(res.Header.Get("X-Goog-Metageneration"), 10, 64)
-		if err != nil {
-			return nil, err
-		}
-	}
+	return r, err
+}
 
-	var lm time.Time
-	if res.Header.Get("Last-Modified") != "" {
-		lm, err = http.ParseTime(res.Header.Get("Last-Modified"))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	attrs := ReaderObjectAttrs{
-		Size:            size,
-		ContentType:     res.Header.Get("Content-Type"),
-		ContentEncoding: res.Header.Get("Content-Encoding"),
-		CacheControl:    res.Header.Get("Cache-Control"),
-		LastModified:    lm,
-		Generation:      gen,
-		Metageneration:  metaGen,
-	}
-	return &Reader{
-		Attrs:    attrs,
-		body:     body,
-		size:     size,
-		remain:   remain,
-		wantCRC:  crc,
-		checkCRC: checkCRC,
-		reopen:   reopen,
-	}, nil
+// decompressiveTranscoding returns true if the request was served decompressed
+// and different than its original storage form. This happens when the "Content-Encoding"
+// header is "gzip".
+// See:
+//   - https://cloud.google.com/storage/docs/transcoding#transcoding_and_gzip
+//   - https://github.com/googleapis/google-cloud-go/issues/1800
+func decompressiveTranscoding(res *http.Response) bool {
+	// Decompressive Transcoding.
+	return res.Header.Get("Content-Encoding") == "gzip" ||
+		res.Header.Get("X-Goog-Stored-Content-Encoding") == "gzip"
 }
 
 func uncompressedByServer(res *http.Response) bool {
@@ -257,17 +160,43 @@ func uncompressedByServer(res *http.Response) bool {
 		res.Header.Get("Content-Encoding") != "gzip"
 }
 
+// parseCRC32c parses the crc32c hash from the X-Goog-Hash header.
+// It can parse headers in the form [crc32c=xxx md5=xxx] (XML responses) or the
+// form [crc32c=xxx,md5=xxx] (JSON responses). The md5 hash is ignored.
 func parseCRC32c(res *http.Response) (uint32, bool) {
 	const prefix = "crc32c="
 	for _, spec := range res.Header["X-Goog-Hash"] {
-		if strings.HasPrefix(spec, prefix) {
-			c, err := decodeUint32(spec[len(prefix):])
-			if err == nil {
-				return c, true
+		values := strings.Split(spec, ",")
+
+		for _, v := range values {
+			if strings.HasPrefix(v, prefix) {
+				c, err := decodeUint32(v[len(prefix):])
+				if err == nil {
+					return c, true
+				}
 			}
 		}
+
 	}
 	return 0, false
+}
+
+// setConditionsHeaders sets precondition request headers for downloads
+// using the XML API. It assumes that the conditions have been validated.
+func setConditionsHeaders(headers http.Header, conds *Conditions) error {
+	if conds == nil {
+		return nil
+	}
+	if conds.MetagenerationMatch != 0 {
+		headers.Set("x-goog-if-metageneration-match", fmt.Sprint(conds.MetagenerationMatch))
+	}
+	switch {
+	case conds.GenerationMatch != 0:
+		headers.Set("x-goog-if-generation-match", fmt.Sprint(conds.GenerationMatch))
+	case conds.DoesNotExist:
+		headers.Set("x-goog-if-generation-match", "0")
+	}
+	return nil
 }
 
 var emptyBody = ioutil.NopCloser(strings.NewReader(""))
@@ -280,66 +209,38 @@ var emptyBody = ioutil.NopCloser(strings.NewReader(""))
 // is skipped if transcoding occurs. See https://cloud.google.com/storage/docs/transcoding.
 type Reader struct {
 	Attrs              ReaderObjectAttrs
-	body               io.ReadCloser
 	seen, remain, size int64
-	checkCRC           bool   // should we check the CRC?
-	wantCRC            uint32 // the CRC32c value the server sent in the header
-	gotCRC             uint32 // running crc
-	reopen             func(seen int64) (*http.Response, error)
+	checkCRC           bool // Did we check the CRC? This is now only used by tests.
+
+	reader io.ReadCloser
+	ctx    context.Context
 }
 
 // Close closes the Reader. It must be called when done reading.
 func (r *Reader) Close() error {
-	return r.body.Close()
+	err := r.reader.Close()
+	trace.EndSpan(r.ctx, err)
+	return err
 }
 
 func (r *Reader) Read(p []byte) (int, error) {
-	n, err := r.readWithRetry(p)
+	n, err := r.reader.Read(p)
 	if r.remain != -1 {
 		r.remain -= int64(n)
-	}
-	if r.checkCRC {
-		r.gotCRC = crc32.Update(r.gotCRC, crc32cTable, p[:n])
-		// Check CRC here. It would be natural to check it in Close, but
-		// everybody defers Close on the assumption that it doesn't return
-		// anything worth looking at.
-		if err == io.EOF {
-			if r.gotCRC != r.wantCRC {
-				return n, fmt.Errorf("storage: bad CRC on read: got %d, want %d",
-					r.gotCRC, r.wantCRC)
-			}
-		}
 	}
 	return n, err
 }
 
-func (r *Reader) readWithRetry(p []byte) (int, error) {
-	n := 0
-	for len(p[n:]) > 0 {
-		m, err := r.body.Read(p[n:])
-		n += m
-		r.seen += int64(m)
-		if !shouldRetryRead(err) {
-			return n, err
-		}
-		// Read failed, but we will try again. Send a ranged read request that takes
-		// into account the number of bytes we've already seen.
-		res, err := r.reopen(r.seen)
-		if err != nil {
-			// reopen already retries
-			return n, err
-		}
-		r.body.Close()
-		r.body = res.Body
+// WriteTo writes all the data from the Reader to w. Fulfills the io.WriterTo interface.
+// This is called implicitly when calling io.Copy on a Reader.
+func (r *Reader) WriteTo(w io.Writer) (int64, error) {
+	// This implicitly calls r.reader.WriteTo for gRPC only. JSON and XML don't have an
+	// implementation of WriteTo.
+	n, err := io.Copy(w, r.reader)
+	if r.remain != -1 {
+		r.remain -= int64(n)
 	}
-	return n, nil
-}
-
-func shouldRetryRead(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.HasSuffix(err.Error(), "INTERNAL_ERROR") && strings.Contains(reflect.TypeOf(err).String(), "http2")
+	return n, err
 }
 
 // Size returns the size of the object in bytes.

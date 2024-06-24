@@ -17,8 +17,12 @@ package datastore
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"time"
 
-	"cloud.google.com/go/internal"
+	"cloud.google.com/go/datastore/internal"
+	cloudinternal "cloud.google.com/go/internal"
+	"cloud.google.com/go/internal/trace"
 	"cloud.google.com/go/internal/version"
 	gax "github.com/googleapis/gax-go/v2"
 	pb "google.golang.org/genproto/googleapis/datastore/v1"
@@ -39,16 +43,27 @@ type datastoreClient struct {
 	md metadata.MD
 }
 
-func newDatastoreClient(conn *grpc.ClientConn, projectID string) pb.DatastoreClient {
+func newDatastoreClient(conn grpc.ClientConnInterface, projectID, databaseID string) pb.DatastoreClient {
+	resourcePrefixValue := "projects/" + url.QueryEscape(projectID)
+	reqParamsHeaderValue := "project_id=" + url.QueryEscape(projectID)
+
+	if databaseID != DefaultDatabaseID && databaseID != "" {
+		resourcePrefixValue += "/databases/" + url.QueryEscape(databaseID)
+		reqParamsHeaderValue += "&database_id=" + url.QueryEscape(databaseID)
+	}
 	return &datastoreClient{
 		c: pb.NewDatastoreClient(conn),
 		md: metadata.Pairs(
-			resourcePrefixHeader, "projects/"+projectID,
-			"x-goog-api-client", fmt.Sprintf("gl-go/%s gccl/%s grpc/", version.Go(), version.Repo)),
+			resourcePrefixHeader, resourcePrefixValue,
+			reqParamsHeader, reqParamsHeaderValue,
+			"x-goog-api-client", fmt.Sprintf("gl-go/%s gccl/%s grpc/", version.Go(), internal.Version)),
 	}
 }
 
 func (dc *datastoreClient) Lookup(ctx context.Context, in *pb.LookupRequest, opts ...grpc.CallOption) (res *pb.LookupResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.Lookup")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.Lookup(ctx, in, opts...)
 		return err
@@ -57,6 +72,9 @@ func (dc *datastoreClient) Lookup(ctx context.Context, in *pb.LookupRequest, opt
 }
 
 func (dc *datastoreClient) RunQuery(ctx context.Context, in *pb.RunQueryRequest, opts ...grpc.CallOption) (res *pb.RunQueryResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.RunQuery")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.RunQuery(ctx, in, opts...)
 		return err
@@ -64,7 +82,21 @@ func (dc *datastoreClient) RunQuery(ctx context.Context, in *pb.RunQueryRequest,
 	return res, err
 }
 
+func (dc *datastoreClient) RunAggregationQuery(ctx context.Context, in *pb.RunAggregationQueryRequest, opts ...grpc.CallOption) (res *pb.RunAggregationQueryResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.RunAggregationQuery")
+	defer func() { trace.EndSpan(ctx, err) }()
+
+	err = dc.invoke(ctx, func(ctx context.Context) error {
+		res, err = dc.c.RunAggregationQuery(ctx, in, opts...)
+		return err
+	})
+	return res, err
+}
+
 func (dc *datastoreClient) BeginTransaction(ctx context.Context, in *pb.BeginTransactionRequest, opts ...grpc.CallOption) (res *pb.BeginTransactionResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.BeginTransaction")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.BeginTransaction(ctx, in, opts...)
 		return err
@@ -73,6 +105,9 @@ func (dc *datastoreClient) BeginTransaction(ctx context.Context, in *pb.BeginTra
 }
 
 func (dc *datastoreClient) Commit(ctx context.Context, in *pb.CommitRequest, opts ...grpc.CallOption) (res *pb.CommitResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.Commit")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.Commit(ctx, in, opts...)
 		return err
@@ -81,6 +116,9 @@ func (dc *datastoreClient) Commit(ctx context.Context, in *pb.CommitRequest, opt
 }
 
 func (dc *datastoreClient) Rollback(ctx context.Context, in *pb.RollbackRequest, opts ...grpc.CallOption) (res *pb.RollbackResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.Rollback")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.Rollback(ctx, in, opts...)
 		return err
@@ -89,6 +127,9 @@ func (dc *datastoreClient) Rollback(ctx context.Context, in *pb.RollbackRequest,
 }
 
 func (dc *datastoreClient) AllocateIds(ctx context.Context, in *pb.AllocateIdsRequest, opts ...grpc.CallOption) (res *pb.AllocateIdsResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.AllocateIds")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	err = dc.invoke(ctx, func(ctx context.Context) error {
 		res, err = dc.c.AllocateIds(ctx, in, opts...)
 		return err
@@ -96,9 +137,20 @@ func (dc *datastoreClient) AllocateIds(ctx context.Context, in *pb.AllocateIdsRe
 	return res, err
 }
 
+func (dc *datastoreClient) ReserveIds(ctx context.Context, in *pb.ReserveIdsRequest, opts ...grpc.CallOption) (res *pb.ReserveIdsResponse, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.datastoreClient.ReserveIds")
+	defer func() { trace.EndSpan(ctx, err) }()
+
+	err = dc.invoke(ctx, func(ctx context.Context) error {
+		res, err = dc.c.ReserveIds(ctx, in, opts...)
+		return err
+	})
+	return res, err
+}
+
 func (dc *datastoreClient) invoke(ctx context.Context, f func(ctx context.Context) error) error {
 	ctx = metadata.NewOutgoingContext(ctx, dc.md)
-	return internal.Retry(ctx, gax.Backoff{}, func() (stop bool, err error) {
+	return cloudinternal.Retry(ctx, gax.Backoff{Initial: 100 * time.Millisecond}, func() (stop bool, err error) {
 		err = f(ctx)
 		return !shouldRetry(err), err
 	})
@@ -112,6 +164,8 @@ func shouldRetry(err error) bool {
 	if !ok {
 		return false
 	}
-	// See https://cloud.google.com/datastore/docs/concepts/errors.
-	return s.Code() == codes.Unavailable || s.Code() == codes.DeadlineExceeded
+	// Only retry on UNAVAILABLE as per https://aip.dev/194. Other errors from
+	// https://cloud.google.com/datastore/docs/concepts/errors may be retried
+	// by the user if desired, but are not retried by the clientg.
+	return s.Code() == codes.Unavailable
 }

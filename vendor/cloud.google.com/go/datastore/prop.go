@@ -38,7 +38,7 @@ type Property struct {
 	//	- string
 	//	- float64
 	//	- *Key
-	//	- time.Time (retrieved as local time)
+	//	- time.Time (retrieved as UTC)
 	//	- GeoPoint
 	//	- []byte (up to 1 megabyte in length)
 	//	- *Entity (representing a nested struct)
@@ -183,7 +183,8 @@ func validateChildType(t reflect.Type, fieldName string, flatten, prevSlice bool
 
 	switch t.Kind() {
 	case reflect.Slice:
-		if flatten && prevSlice {
+		// Uint8 is an alias for byte. A slice of bytes is acceptable. A slice of others types is not.
+		if flatten && prevSlice && t.Elem().Kind() != reflect.Uint8 {
 			return fmt.Errorf("datastore: flattening nested structs leads to a slice of slices: field %q", fieldName)
 		}
 		return validateChildType(t.Elem(), fieldName, flatten, true, prevTypes)

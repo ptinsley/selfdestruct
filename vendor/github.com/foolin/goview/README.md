@@ -31,7 +31,7 @@ Goview is a lightweight, minimalist and idiomatic template library based on gola
 
 ## Install
 ```bash
-go get -u github.com/foolin/goview
+go get github.com/foolin/goview
 ```
 
 
@@ -281,7 +281,7 @@ See in "examples/basic" folder
 ### Gin example
 
 ```bash
-go get -u github.com/foolin/goview/supports/ginview
+go get github.com/foolin/goview/supports/ginview
 ```
 
 ```go
@@ -341,13 +341,13 @@ See in "examples/basic" folder
 
 Echo <=v3 version:
 ```bash
-go get -u github.com/foolin/goview/supports/echoview
+go get github.com/foolin/goview/supports/echoview
 ```
 
 Echo v4 version:
 
 ```bash
-go get -u github.com/foolin/goview/supports/echoview-v4
+go get github.com/foolin/goview/supports/echoview-v4
 ```
 
 
@@ -653,7 +653,7 @@ See in "examples/multiple" folder
 ### go.rice example
 
 ```bash
-go get -u github.com/foolin/goview/supports/gorice
+go get github.com/foolin/goview/supports/gorice
 ```
 
 ```go
@@ -740,3 +740,9 @@ See [_examples/](https://github.com/foolin/goview/blob/master/_examples/) for a 
 [GoReportCard Widget]: https://goreportcard.com/badge/github.com/foolin/goview
 [GoCover]: https://goreportcard.com/report/github.com/foolin/goview
 [GoCover Widget]: https://goreportcard.com/badge/github.com/foolin/goview
+
+
+### Todo
+ [ ] Add Partials support directory or glob
+ [ ] Add functions support.
+ 

@@ -20,15 +20,19 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/internal/fields"
 	pb "google.golang.org/genproto/googleapis/datastore/v1"
 )
 
 var (
-	typeOfByteSlice = reflect.TypeOf([]byte(nil))
-	typeOfTime      = reflect.TypeOf(time.Time{})
-	typeOfGeoPoint  = reflect.TypeOf(GeoPoint{})
-	typeOfKeyPtr    = reflect.TypeOf(&Key{})
+	typeOfByteSlice     = reflect.TypeOf([]byte(nil))
+	typeOfTime          = reflect.TypeOf(time.Time{})
+	typeOfCivilDate     = reflect.TypeOf(civil.Date{})
+	typeOfCivilDateTime = reflect.TypeOf(civil.DateTime{})
+	typeOfCivilTime     = reflect.TypeOf(civil.Time{})
+	typeOfGeoPoint      = reflect.TypeOf(GeoPoint{})
+	typeOfKeyPtr        = reflect.TypeOf(&Key{})
 )
 
 // typeMismatchReason returns a string explaining why the property p could not
@@ -292,6 +296,24 @@ func setVal(v reflect.Value, p Property) (s string) {
 			return overflowReason(x, v)
 		}
 		v.SetFloat(x)
+
+	case reflect.Interface:
+		if !v.CanSet() {
+			return fmt.Sprintf("%v is unsettable", v.Type())
+		}
+
+		// When retrieved property value is untyped nil, its type cannot be determined
+		// So, set v to zero value of its datatype
+		if pValue == nil {
+			v.Set(reflect.Zero(v.Type()))
+		} else {
+			rpValue := reflect.ValueOf(pValue)
+			if !rpValue.Type().AssignableTo(v.Type()) {
+				return fmt.Sprintf("%q is not assignable to %q", rpValue.Type(), v.Type())
+			}
+			v.Set(rpValue)
+		}
+
 	case reflect.Ptr:
 		// v must be a pointer to either a Key, an Entity, or one of the supported basic types.
 		if v.Type() != typeOfKeyPtr && v.Type().Elem().Kind() != reflect.Struct && !isValidPointerType(v.Type().Elem()) {
@@ -353,7 +375,7 @@ func setVal(v reflect.Value, p Property) (s string) {
 			if ok {
 				s := micros / 1e6
 				ns := micros % 1e6
-				v.Set(reflect.ValueOf(time.Unix(s, ns)))
+				v.Set(reflect.ValueOf(time.Unix(s, ns).In(time.UTC)))
 				break
 			}
 			x, ok := pValue.(time.Time)
@@ -367,6 +389,15 @@ func setVal(v reflect.Value, p Property) (s string) {
 				return typeMismatchReason(p, v)
 			}
 			v.Set(reflect.ValueOf(x))
+		case typeOfCivilDate:
+			date := civil.DateOf(pValue.(time.Time).In(time.UTC))
+			v.Set(reflect.ValueOf(date))
+		case typeOfCivilDateTime:
+			dateTime := civil.DateTimeOf(pValue.(time.Time).In(time.UTC))
+			v.Set(reflect.ValueOf(dateTime))
+		case typeOfCivilTime:
+			timeVal := civil.TimeOf(pValue.(time.Time).In(time.UTC))
+			v.Set(reflect.ValueOf(timeVal))
 		default:
 			ent, ok := pValue.(*Entity)
 			if !ok {
@@ -419,14 +450,19 @@ func loadEntityProto(dst interface{}, src *pb.Entity) error {
 
 func loadEntity(dst interface{}, ent *Entity) error {
 	if pls, ok := dst.(PropertyLoadSaver); ok {
-		err := pls.Load(ent.Properties)
-		if err != nil {
-			return err
-		}
+		// Load both key and properties. Try to load as much as possible, even
+		// if an error occurs during loading either the key or the
+		// properties.
+		var keyLoadErr error
 		if e, ok := dst.(KeyLoader); ok {
-			err = e.LoadKey(ent.Key)
+			keyLoadErr = e.LoadKey(ent.Key)
 		}
-		return err
+		loadErr := pls.Load(ent.Properties)
+		// Let any error returned by LoadKey prevail above any error from Load.
+		if keyLoadErr != nil {
+			return keyLoadErr
+		}
+		return loadErr
 	}
 	return loadEntityToStruct(dst, ent)
 }
@@ -477,10 +513,16 @@ func protoToEntity(src *pb.Entity) (*Entity, error) {
 		if err != nil {
 			return nil, err
 		}
+		noIndex := val.ExcludeFromIndexes
+		if array := val.GetArrayValue(); array != nil {
+			if values := array.GetValues(); len(values) > 0 {
+				noIndex = values[0].ExcludeFromIndexes
+			}
+		}
 		props = append(props, Property{
 			Name:    name,
 			Value:   v,
-			NoIndex: val.ExcludeFromIndexes,
+			NoIndex: noIndex,
 		})
 	}
 	var key *Key
@@ -506,7 +548,7 @@ func propToValue(v *pb.Value) (interface{}, error) {
 	case *pb.Value_DoubleValue:
 		return v.DoubleValue, nil
 	case *pb.Value_TimestampValue:
-		return time.Unix(v.TimestampValue.Seconds, int64(v.TimestampValue.Nanos)), nil
+		return time.Unix(v.TimestampValue.Seconds, int64(v.TimestampValue.Nanos)).In(time.UTC), nil
 	case *pb.Value_KeyValue:
 		return protoToKey(v.KeyValue)
 	case *pb.Value_StringValue:
